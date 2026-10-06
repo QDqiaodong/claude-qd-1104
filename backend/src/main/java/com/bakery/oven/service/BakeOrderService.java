@@ -81,6 +81,14 @@ public class BakeOrderService {
             if (input.trays != null && input.trays > oven.capacity) {
                 throw new BizException("实际烤盘数不能超过烤箱容量（" + oven.capacity + "）：" + oven.code);
             }
+            // 编辑改挂也不得制造“一炉两张烘焙中”（故障接管走专门接口）
+            if ("烘焙中".equals(order.status)) {
+                boolean slotTaken = orderRepository.findByOvenIdAndStatus(input.ovenId, "烘焙中").stream()
+                        .anyMatch(o -> !o.id.equals(order.id));
+                if (slotTaken) {
+                    throw new BizException("同一烤箱同时只能有一张「烘焙中」工单：" + oven.code);
+                }
+            }
             order.ovenId = input.ovenId;
         }
         if (input.recipeId != null && !input.recipeId.equals(order.recipeId)) {
@@ -108,19 +116,27 @@ public class BakeOrderService {
     }
 
     /** 待烤 → 烘焙中 */
+    @org.springframework.transaction.annotation.Transactional
     public BakeOrder start(Long id) {
-        BakeOrder order = orderRepository.findById(id)
+        // 先锁炉再锁单：与故障接管的加锁顺序（炉 → 单）保持一致，避免交叉死锁，
+        // 同时用炉行锁串行化“一炉一张烘焙中工单”的占用裁决。
+        BakeOrder first = orderRepository.findById(id)
                 .orElseThrow(() -> new BizException("工单不存在：" + id));
-        if (!Dict.canTransferBakeOrder(order.status, "烘焙中")) {
+        if (!Dict.canTransferBakeOrder(first.status, "烘焙中")) {
+            throw new BizException("只有「待烤」的工单才能开始烘焙，当前为：" + first.status);
+        }
+        Oven oven = ovenRepository.findByIdForUpdate(first.ovenId)
+                .orElseThrow(() -> new BizException("烤箱不存在：" + first.ovenId));
+        BakeOrder order = orderRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new BizException("工单不存在：" + id));
+        if (!"待烤".equals(order.status)) {
             throw new BizException("只有「待烤」的工单才能开始烘焙，当前为：" + order.status);
         }
-        Oven oven = ovenRepository.findById(order.ovenId)
-                .orElseThrow(() -> new BizException("烤箱不存在：" + order.ovenId));
         if ("故障".equals(oven.status)) {
             throw new BizException("故障烤箱上的工单不能开始烘焙：" + oven.code);
         }
         boolean conflict = orderRepository.findByOvenIdAndStatus(oven.id, "烘焙中").stream()
-                .anyMatch(o -> !o.id.equals(order.id));
+                .anyMatch(o -> !o.id.equals(id));
         if (conflict) {
             throw new BizException("同一烤箱同时只能有一张「烘焙中」工单：" + oven.code);
         }
@@ -132,14 +148,19 @@ public class BakeOrderService {
     }
 
     /** 烘焙中 → 已出炉 */
+    @org.springframework.transaction.annotation.Transactional
     public BakeOrder done(Long id) {
-        BakeOrder order = orderRepository.findById(id)
+        // 同样先锁炉再锁单，避免与故障接管交叉加锁导致死锁
+        BakeOrder preview = orderRepository.findById(id)
+                .orElseThrow(() -> new BizException("工单不存在：" + id));
+        Oven oven = preview.ovenId == null ? null
+                : ovenRepository.findByIdForUpdate(preview.ovenId).orElse(null);
+        BakeOrder order = orderRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new BizException("工单不存在：" + id));
         if (!Dict.canTransferBakeOrder(order.status, "已出炉")) {
             throw new BizException("只有「烘焙中」的工单才能出炉，当前为：" + order.status);
         }
         order.status = "已出炉";
-        Oven oven = ovenRepository.findById(order.ovenId).orElse(null);
         if (oven != null && "占用".equals(oven.status)) {
             oven.status = "空闲";
             ovenRepository.save(oven);

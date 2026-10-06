@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import router from './router'
 import api from './api'
 
@@ -7,6 +7,8 @@ import OvenView from './views/OvenView.vue'
 import BreadRecipeView from './views/BreadRecipeView.vue'
 import BakeOrderView from './views/BakeOrderView.vue'
 import ShipmentView from './views/ShipmentView.vue'
+import TakeoverDialog from './components/TakeoverDialog.vue'
+import bus, { takeoverState } from './utils/bus'
 
 // ------------------------------------------------------------------
 // 导航形态：图标窄侧栏（左侧窄竖栏，4 个模块各一个 icon 按钮）
@@ -33,11 +35,25 @@ const modules = [
 
 const currentPath = ref(router.currentRoute.value.path)
 const counts = ref({})
+// 接管成功后自增，强制当前视图重挂载（重新拉取归属/状态，保证刷新后一致）
+const viewKey = ref(0)
 
 const currentView = computed(() => {
   const m = modules.find((mm) => mm.path === currentPath.value)
   return m ? m.comp : OvenView
 })
+
+function onTaken() {
+  viewKey.value += 1
+  loadCounts()
+}
+
+onMounted(() => {
+  bus.on('takeover:taken', onTaken)
+  currentPath.value = router.currentRoute.value.path
+  loadCounts()
+})
+onUnmounted(() => bus.off('takeover:taken', onTaken))
 
 async function loadCounts() {
   try {
@@ -58,11 +74,6 @@ function go(path) {
 }
 
 watch(() => router.currentRoute.value.path, (p) => { currentPath.value = p })
-
-onMounted(async () => {
-  currentPath.value = router.currentRoute.value.path
-  await loadCounts()
-})
 </script>
 
 <template>
@@ -93,9 +104,16 @@ onMounted(async () => {
         </div>
       </header>
       <section class="panel">
-        <component :is="currentView" @changed="loadCounts" />
+        <component :is="currentView" :key="currentPath + '-' + viewKey" @changed="loadCounts" />
       </section>
     </main>
+
+    <!-- 全局故障接管弹窗：烤箱列表与工单看板均可触发 -->
+    <TakeoverDialog
+      v-model="takeoverState.open"
+      :source-oven-id="takeoverState.sourceOvenId"
+      @taken="bus.emit('takeover:taken')"
+    />
   </div>
 </template>
 

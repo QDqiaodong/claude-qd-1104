@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import api from '../api'
 import { ElMessage } from 'element-plus'
+import bus, { openTakeover } from '../utils/bus'
 
 const orders = ref([])
 const ovens = ref([])
@@ -23,6 +24,17 @@ const byStatus = computed(() => {
 
 const selectableOvens = computed(() => ovens.value.filter((o) => o.status !== '故障'))
 const selectableRecipes = computed(() => recipes.value.filter((r) => r.status === '上架'))
+
+// 故障炉清单（用于看板顶部异常提示 + 卡片上的故障标红）
+const brokenOvens = computed(() => ovens.value.filter((o) => o.status === '故障'))
+function isBroken(ovenId) {
+  const o = ovenMap.value[ovenId]
+  return o && o.status === '故障'
+}
+function stuckOrders(ovenId) {
+  return orders.value.filter((o) =>
+    o.ovenId === ovenId && (o.status === '待烤' || o.status === '烘焙中'))
+}
 
 const ovenCapacity = computed(() => {
   const o = ovenMap.value[form.ovenId]
@@ -60,7 +72,11 @@ async function act(id, fn, label) {
 const emit = defineEmits(['changed'])
 function emitChanged() { emit('changed') }
 
+// 接管成功后看板重拉（App 层会整体重挂载，这里再订阅一次保证视图内数据一致）
+const offTaken = bus.on('takeover:taken', () => load())
+
 onMounted(load)
+onUnmounted(offTaken)
 </script>
 
 <template>
@@ -70,22 +86,55 @@ onMounted(load)
       <el-button type="primary" @click="openCreate">排产新工单</el-button>
     </div>
 
+    <!-- 异常提示：故障炉上的待烤/烘焙中工单 -->
+    <el-alert
+      v-for="o in brokenOvens"
+      :key="'brk-' + o.id"
+      type="error" show-icon :closable="false"
+      style="margin-bottom: 10px"
+    >
+      <template #title>
+        <div class="alert-line">
+          <span>
+            烤箱 <b>{{ o.code }}</b> 故障，
+            <span class="risk-high-text">{{ stuckOrders(o.id).filter((x) => x.status === '烘焙中').length }} 张烘焙中</span>
+            （保留原开始时间续烤，高风险）、
+            <span class="risk-mid-text">{{ stuckOrders(o.id).filter((x) => x.status === '待烤').length }} 张待烤</span>
+            （迁移后仍待烤，中风险）工单停滞，请接管
+          </span>
+          <el-button size="small" type="danger" @click="openTakeover(o.id)">故障接管</el-button>
+        </div>
+      </template>
+    </el-alert>
+
     <div class="board">
       <div class="col" v-for="c in COLS" :key="c">
         <div class="col-head" :class="'col-' + c">{{ c }}<span class="cnt">{{ byStatus[c].length }}</span></div>
         <div class="col-body">
-          <div class="card" v-for="o in byStatus[c]" :key="o.id">
+          <div class="card" v-for="o in byStatus[c]" :key="o.id" :class="{ 'card-broken': isBroken(o.ovenId) }">
             <div class="card-top">
               <span class="badge">#{{ o.id }}</span>
-              <span class="oven">{{ ovenMap[o.ovenId] ? ovenMap[o.ovenId].code : '?' }}</span>
+              <span class="oven">
+                {{ ovenMap[o.ovenId] ? ovenMap[o.ovenId].code : '?' }}
+                <el-tag v-if="isBroken(o.ovenId)" size="small" type="danger" effect="dark" style="margin-left: 4px">炉故障</el-tag>
+              </span>
             </div>
             <div class="recipe">{{ recipeMap[o.recipeId] ? recipeMap[o.recipeId].name : '?' }}</div>
             <div class="meta">烤盘 {{ o.trays }} / 容量 {{ ovenMap[o.ovenId] ? ovenMap[o.ovenId].capacity : '-' }}</div>
             <div class="meta" v-if="o.startTime">开始 {{ o.startTime }}</div>
+            <div
+              v-if="isBroken(o.ovenId)"
+              class="risk-tip"
+              :class="c === '烘焙中' ? 'risk-high' : 'risk-mid'"
+            >
+              <template v-if="c === '烘焙中'">⚠ 烘焙中工单随故障炉停滞，接管换炉将保留原开始时间续烤（高风险）</template>
+              <template v-else>⚠ 待烤工单随故障炉停滞，接管迁移后仍为待烤（中风险）</template>
+            </div>
             <div class="acts">
               <el-button size="small" type="primary" v-if="c === '待烤'" @click="act(o.id, api.startBakeOrder, '开始烘焙')">开始</el-button>
               <el-button size="small" type="warning" v-if="c === '烘焙中'" @click="act(o.id, api.doneBakeOrder, '出炉')">出炉</el-button>
               <el-button size="small" type="success" v-if="c === '已出炉'" @click="act(o.id, api.inspectBakeOrder, '质检')">质检</el-button>
+              <el-button size="small" type="danger" v-if="isBroken(o.ovenId) && (c === '待烤' || c === '烘焙中')" @click="openTakeover(o.ovenId)">故障接管</el-button>
               <span class="done-tip" v-if="c === '已质检'">可出货</span>
             </div>
           </div>
@@ -134,6 +183,13 @@ onMounted(load)
 .cnt { background: rgba(255,255,255,0.25); border-radius: 10px; padding: 0 8px; font-size: 12px; }
 .col-body { padding: 10px; min-height: 120px; display: flex; flex-direction: column; gap: 10px; }
 .card { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fffdf8; box-shadow: 0 1px 4px rgba(179,107,0,0.08); }
+.card-broken { border-color: #e3a3a3; background: #fff7f5; }
+.alert-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.risk-tip { font-size: 12px; line-height: 1.5; margin-top: 6px; padding: 4px 6px; border-radius: 6px; }
+.risk-high { color: #b4443e; background: #fbe7e6; }
+.risk-mid { color: #9a6a12; background: #faf0d7; }
+.risk-high-text { color: #b4443e; font-weight: 700; }
+.risk-mid-text { color: #9a6a12; font-weight: 700; }
 .card-top { display: flex; justify-content: space-between; align-items: center; }
 .badge { font-size: 12px; color: var(--muted); }
 .oven { font-weight: 700; color: var(--primary-deep); }

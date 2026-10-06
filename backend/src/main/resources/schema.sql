@@ -78,15 +78,17 @@ INSERT INTO bread_recipe (name, need_trays, bake_minutes, status, created_at) VA
 ('全麦吐司', 4, 40, '上架', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 45 DAY),
 ('可颂',     2, 28, '隐藏', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 40 DAY);
 
--- 工单：覆盖 4 个状态，且含异常态（待烤落在故障烤箱 OV-03 上，审计可点）
--- OV-02 为占用（与其中一张烘焙中工单呼应）；OV-03 为故障（待烤工单将无法 start）
+-- 工单：覆盖 4 个状态，且含异常态（待烤 + 烘焙中都有工单落在故障烤箱 OV-03 上，供故障接管演示）
+-- OV-02 为占用（工单3烘焙中呼应）；OV-03 为故障：工单1待烤无法 start、工单2烘焙中需接管续烤；
+-- OV-04 空闲(容量5)、OV-01 空闲(容量4) 可作为替代烤箱
 INSERT INTO bake_order (oven_id, recipe_id, trays, start_time, status, created_at) VALUES
-(3, 1, 2, NULL,                                   '待烤', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 3 DAY),
-(2, 2, 3, UTC_TIMESTAMP() + INTERVAL 8 HOUR,     '烘焙中', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 3 DAY),
-(1, 3, 4, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 1 DAY, '已出炉', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 3 DAY),
-(4, 1, 2, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 2 DAY, '已质检', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 3 DAY);
+(3, 1, 2, NULL,                                                          '待烤',   UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 3 DAY),
+(3, 2, 3, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 15 MINUTE,        '烘焙中', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 3 DAY),
+(2, 2, 3, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 20 MINUTE,         '烘焙中', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 3 DAY),
+(1, 3, 4, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 1 DAY,             '已出炉', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 3 DAY),
+(4, 1, 2, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 2 DAY,             '已质检', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 3 DAY);
 
--- 出货：覆盖 待发 / 已发 两态，均挂在已质检工单(id=4)上
+-- 出货：覆盖 待发 / 已发 两态，均挂在已质检工单(id=5)上
 INSERT INTO shipment (bake_order_id, qty, channel, status, created_at) VALUES
-(4, 20, '门店', '待发', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 1 DAY),
-(4, 15, '外卖', '已发', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 2 DAY);
+(5, 20, '门店', '待发', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 1 DAY),
+(5, 15, '外卖', '已发', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 2 DAY);

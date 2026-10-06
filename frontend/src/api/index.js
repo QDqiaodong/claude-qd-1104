@@ -42,6 +42,11 @@ export default {
   doneBakeOrder: (id) => call(http.post(`/bake-orders/${id}/done`)),
   inspectBakeOrder: (id) => call(http.post(`/bake-orders/${id}/inspect`)),
 
+  // ---------------- 故障接管 ----------------
+  takeoverPreview: (sourceOvenId) => call(http.get(`/takeovers/ovens/${sourceOvenId}/preview`)),
+  takeover: (sourceOvenId, items) =>
+    call(http.post(`/takeovers/ovens/${sourceOvenId}/take`, { items })),
+
   // ---------------- 出货 ----------------
   listShipments: (status) => call(http.get('/shipments', params(status ? { status } : {}))),
   createShipment: (d) => call(http.post('/shipments', d)),
