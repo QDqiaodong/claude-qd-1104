@@ -13,4 +13,6 @@ public interface BakeOrderRepository extends JpaRepository<BakeOrder, Long> {
     List<BakeOrder> findByOvenId(Long ovenId);
 
     List<BakeOrder> findByOvenIdAndStatus(Long ovenId, String status);
+
+    List<BakeOrder> findByOvenIdAndStatusIn(Long ovenId, List<String> statuses);
 }

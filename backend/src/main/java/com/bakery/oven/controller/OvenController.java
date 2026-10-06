@@ -1,6 +1,8 @@
 package com.bakery.oven.controller;
 
 import com.bakery.oven.common.ApiResponse;
+import com.bakery.oven.dto.TakeoverRequest;
+import com.bakery.oven.entity.BakeOrder;
 import com.bakery.oven.entity.Oven;
 import com.bakery.oven.service.OvenService;
 
@@ -48,5 +50,18 @@ public class OvenController {
     @PostMapping("/{id}/repair")
     public ApiResponse<Oven> repairOven(@PathVariable Long id) {
         return ApiResponse.success(ovenService.repairOven(id));
+    }
+
+    /** 烤箱详情 · 故障接管：该炉当前可迁移的在炉工单（待烤 / 烘焙中） */
+    @GetMapping("/{id}/takeover-orders")
+    public ApiResponse<List<BakeOrder>> takeoverOrders(@PathVariable Long id) {
+        return ApiResponse.success(ovenService.takeoverOrders(id));
+    }
+
+    /** 故障接管：整批迁移在炉工单到各自替代烤箱，任一不满足条件则整批不落库 */
+    @PostMapping("/{id}/takeover")
+    public ApiResponse<List<BakeOrder>> takeover(@PathVariable Long id, @RequestBody TakeoverRequest req) {
+        List<BakeOrder> migrated = ovenService.takeover(id, req == null ? null : req.items);
+        return ApiResponse.success("接管完成，已迁移 " + migrated.size() + " 张工单", migrated);
     }
 }

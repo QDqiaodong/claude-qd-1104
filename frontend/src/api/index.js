@@ -28,6 +28,8 @@ export default {
   updateOven: (id, d) => call(http.put(`/ovens/${id}`, d)),
   breakOven: (id) => call(http.post(`/ovens/${id}/break`)),
   repairOven: (id) => call(http.post(`/ovens/${id}/repair`)),
+  listOvenTakeoverOrders: (id) => call(http.get(`/ovens/${id}/takeover-orders`)),
+  takeoverOven: (id, items) => call(http.post(`/ovens/${id}/takeover`, { items })),
 
   // ---------------- 面包配方 ----------------
   listBreadRecipes: (status) => call(http.get('/bread-recipes', params(status ? { status } : {}))),
